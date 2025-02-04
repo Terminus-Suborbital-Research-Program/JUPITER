@@ -1,0 +1,6 @@
+[submodule "radiacode/radiacode"]
+	path = radiacode/radiacode
+	url = git@github.com:cdump/radiacode.git
+[submodule "radiacode-tools"]
+	path = radiacode-tools
+	url = https://github.com/ckuethe/radiacode-tools
