@@ -5,7 +5,7 @@ version = 4
 [[package]]
 name = "bin-packets"
 version = "0.1.2"
-source = "git+https://github.com/Terminus-Suborbital-Research-Program/AMALTHEA.git#9094bcd0a2c1900a7851c89ac93d6254f0d76ab0"
+source = "git+https://github.com/Terminus-Suborbital-Research-Program/AMALTHEA.git#48c61edba398a9336165c6236c0cedbbd9f2e07d"
 dependencies = [
  "bincode",
  "defmt",
@@ -84,8 +84,15 @@ version = "0.1.0"
 dependencies = [
  "bin-packets",
  "bincode",
+ "log",
  "sqlite",
 ]
+
+[[package]]
+name = "log"
+version = "0.4.26"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "30bde2b3dc3671ae49d8e2e9f044c7c005836e7a023ee57cffa25ab82764bb9e"
 
 [[package]]
 name = "pkg-config"

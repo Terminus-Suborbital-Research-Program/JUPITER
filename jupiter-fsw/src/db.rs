@@ -1,8 +1,33 @@
-use std::{sync::{Arc, Mutex}, time::SystemTime};
+use std::{env, process::Command, sync::{Arc, Mutex}, time::SystemTime};
 
 use bin_packets::{ApplicationPacket, UnixTimestampMillis};
 use bincode::{config::standard, decode_from_slice, encode_to_vec, error::DecodeError};
+use log::info;
 use sqlite::Connection;
+
+fn packet_db_loc() -> String {
+    env::var("PACKETS_DATABASE").expect("PACKETS_DATABASE not set!")
+}
+
+fn template_db_loc() -> String {
+    env::var("TEMPLATE_DB").expect("TEMPLATE_DB not set!")
+}
+
+pub fn open_current_powercycle_database() -> Connection {
+    match sqlite::open(packet_db_loc()) {
+        Ok(db) => db,
+        Err(_) => {
+            // Probably the db doesn't exist
+            create_db();
+            sqlite::open(packet_db_loc()).unwrap()
+        }
+    }
+}
+
+fn create_db() {
+    Command::new("cp").arg(template_db_loc()).arg(packet_db_loc()).output().unwrap();
+    info!("Created new database for current powercycle");
+}
 
 #[derive(Debug)]
 pub struct CachedPacket {
@@ -59,6 +84,12 @@ impl PacketsCacheHandler {
     pub fn new(database: &Arc<Mutex<Connection>>) -> Self {
         PacketsCacheHandler {
             db: Arc::clone(database)
+        }
+    }
+
+    pub fn duplicate(&self) -> Self {
+        PacketsCacheHandler {
+            db: Arc::clone(&self.db)
         }
     }
 
