@@ -1,7 +1,6 @@
-use std::{env, sync::{Arc, Mutex}};
+use std::{sync::{Arc, Mutex}, thread::sleep, time::Duration};
 
-use bin_packets::ApplicationPacket;
-use jupiter_fsw::{db::{open_current_powercycle_database, CachedPacket, PacketsCacheHandler}, tasks::{tasks::TelemetryLogger, Task}};
+use jupiter_fsw::{db::{open_current_powercycle_database, PacketsCacheHandler}, tasks::{tasks::TelemetryLogger, Task}};
 
 
 fn main() {
@@ -14,5 +13,7 @@ fn main() {
         logger.task(&mut ());
     });
 
-    loop {}
+    loop {
+        sleep(Duration::from_millis(1000));
+    }
 }
