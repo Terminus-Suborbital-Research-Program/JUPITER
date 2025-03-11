@@ -1,1 +1,3 @@
 /venv
+fsw/target/*
+fsw/Cargo.lock
