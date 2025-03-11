@@ -5,3 +5,5 @@ edition = "2024"
 
 [dependencies]
 bin-packets = { git = "https://github.com/Terminus-Suborbital-Research-Program/AMALTHEA.git" }
+bincode = "2.0.1"
+sqlite = "0.36.2"
