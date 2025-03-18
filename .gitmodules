@@ -4,3 +4,6 @@
 [submodule "GUARD/radiacode/radiacode"]
 	path = GUARD/radiacode/radiacode
 	url = https://github.com/cdump/radiacode.git
+[submodule "ATMega"]
+	path = ATMega
+	url = https://github.com/Terminus-Suborbital-Research-Program/ATMega.git
