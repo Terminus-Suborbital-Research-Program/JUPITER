@@ -1,17 +1,25 @@
-use std::{sync::{Arc, Mutex}, thread::sleep, time::Duration};
+use std::{
+    env::set_var,
+    sync::{Arc, Mutex},
+    thread::sleep,
+    time::Duration,
+};
 
-use jupiter_fsw::{db::{open_current_powercycle_database, PacketsCacheHandler}, tasks::{tasks::TelemetryLogger, Task}};
+use env_logger::Env;
 
+mod db;
+mod tasks;
+
+use crate::db::db_init;
+use log::info;
 
 fn main() {
-    let db = open_current_powercycle_database();
-    let db = PacketsCacheHandler::new(&Arc::new(Mutex::new(db)));
+    let env = Env::default().filter_or("LOG_LEVEL", "info");
+    env_logger::init_from_env(env);
 
-    let mut logger = TelemetryLogger::new(&db);
+    db_init();
 
-    std::thread::spawn(move || {
-        logger.task(&mut ());
-    });
+    info!("Current Iteration: {}", db::current_iteration_num());
 
     loop {
         sleep(Duration::from_millis(1000));

@@ -1,124 +1,118 @@
-use std::{env, process::Command, sync::{Arc, Mutex}, time::SystemTime};
+use std::{env, process::Command, time::SystemTime};
 
-use bin_packets::{ApplicationPacket, UnixTimestampMillis};
-use bincode::{config::standard, decode_from_slice, encode_to_vec, error::DecodeError};
+use bin_packets::UnixTimestampMillis;
 use log::info;
-use sqlite::Connection;
+use sqlite::{Connection, State};
 
 fn packet_db_loc() -> String {
-    env::var("PACKETS_DATABASE").expect("PACKETS_DATABASE not set!")
+    env::var("PACKETS_DB").unwrap_or("packets.db".into())
 }
 
 fn template_db_loc() -> String {
     env::var("TEMPLATE_DB").expect("TEMPLATE_DB not set!")
 }
 
-pub fn open_current_powercycle_database() -> Connection {
-    match sqlite::open(packet_db_loc()) {
-        Ok(db) => db,
-        Err(_) => {
-            // Probably the db doesn't exist
+fn open_db() -> Connection {
+    // Open/create a SQLite database connection
+    match Connection::open(packet_db_loc()) {
+        Ok(conn) => {
+            info!("Opened database at {}", packet_db_loc());
+            conn
+        }
+        Err(e) => {
+            info!("Failed to open database: {}. Creating a new one.", e);
             create_db();
-            sqlite::open(packet_db_loc()).unwrap()
+            Connection::open(packet_db_loc()).expect("Failed to open newly created database")
         }
     }
+}
+
+pub fn current_iteration_num() -> i64 {
+    let connection = open_db();
+    match connection.prepare("select (id) from iteration ORDER BY id DESC LIMIT 1;") {
+        Ok(mut stm) => {
+            // Execute the query and get the first row
+            match stm.next() {
+                Ok(State::Row) => {
+                    // Read the value from the first column (id)
+                    let id: i64 = stm.read::<i64, _>(0).unwrap_or(0);
+                    info!("Most recent iteration ID: {}", id);
+                    id // Return the most recent iteration ID incremented
+                }
+                Ok(State::Done) => {
+                    info!("No past runs found, returning 0");
+                    0 // Return 0 if no rows are found
+                }
+                Err(e) => {
+                    info!("Error reading rows: {}", e);
+                    0 // Return 0 on error
+                }
+            }
+        }
+
+        _ => {
+            info!("Couldn't read rows, probably no past runs...");
+            0
+        }
+    }
+}
+
+pub fn db_init() {
+    // See if DB file exists
+    let db_path = packet_db_loc();
+    if std::path::Path::new(&db_path).exists() {
+        info!("Database file exists at {}", db_path);
+    } else {
+        info!("Database file does not exist at {}, creating it.", db_path);
+        create_db();
+    }
+
+    start_iteration();
+}
+
+fn start_iteration() {
+    // Open the database connection
+    let connection = open_db();
+
+    // Prepare query
+    let this_iter = current_iteration_num() + 1;
+    let system_start_time = now_millis(); // Get the current time in milliseconds
+    let query = format!(
+        "INSERT INTO iteration (id, local_time_boot, boot_num) VALUES ({}, {}, 0);",
+        this_iter, system_start_time
+    );
+
+    // Execute the query
+    match connection.execute(&query) {
+        Err(e) => {
+            info!("Failed to set new iteration: {:?}", e);
+        }
+
+        _ => {}
+    }
+}
+
+// Returns the current time in milliseconds since the Unix epoch
+fn now_millis() -> u128 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("Time went backwards!")
+        .as_millis()
 }
 
 fn create_db() {
-    Command::new("cp").arg(template_db_loc()).arg(packet_db_loc()).output().unwrap();
-    info!("Created new database for current powercycle");
+    Command::new("cp")
+        .arg(template_db_loc())
+        .arg(packet_db_loc())
+        .output()
+        .unwrap();
+    info!("Created new database");
 }
 
-#[derive(Debug)]
-pub struct CachedPacket {
-    data: Vec<u8>,
-    timestamp: UnixTimestampMillis,
+pub trait Database<T> {
+    fn cache(&mut self, packet: T) -> Result<(), String>;
+
+    fn most_recent(&mut self, n: usize) -> Result<Vec<T>, String>;
 }
 
-impl CachedPacket {
-    pub fn new(packet: ApplicationPacket) -> Self {
-        Self::from(packet)
-    }
-
-    pub(super) fn raw(packet: &[u8], time: u64) -> Self {
-        CachedPacket {
-            data: Vec::from(packet),
-            timestamp: UnixTimestampMillis::new(time),
-        }
-    }
-
-    pub fn inner(self) -> (Vec<u8>, UnixTimestampMillis) {
-        (self.data, self.timestamp)
-    }
-}
-
-impl From<ApplicationPacket> for CachedPacket {
-    fn from(value: ApplicationPacket) -> Self {
-        let now = SystemTime::now();
-        let timestamp = now.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as u64;
-        let timestamp = UnixTimestampMillis::new(timestamp);
-
-        let data = encode_to_vec(value, standard()).unwrap();
-
-        CachedPacket {
-            data,
-            timestamp,
-        }
-    }
-}
-
-impl TryFrom<CachedPacket> for ApplicationPacket {
-    type Error = DecodeError;
-
-    fn try_from(value: CachedPacket) -> Result<Self, Self::Error> {
-        let res: (ApplicationPacket, usize) = decode_from_slice(&value.data, standard())?;
-        Ok(res.0)
-    }
-}
-
-pub struct PacketsCacheHandler {
-    db: Arc<Mutex<Connection>>,
-}
-
-impl PacketsCacheHandler {
-    pub fn new(database: &Arc<Mutex<Connection>>) -> Self {
-        PacketsCacheHandler {
-            db: Arc::clone(database)
-        }
-    }
-
-    pub fn duplicate(&self) -> Self {
-        PacketsCacheHandler {
-            db: Arc::clone(&self.db)
-        }
-    }
-
-    pub fn insert_cached_packet(&self, packet: CachedPacket) {
-        let connection = self.db.lock().unwrap();
-        
-        let statement = "INSERT INTO current_powercycle (timestamp, data) VALUES (?, ?);";
-        let mut statement = connection.prepare(statement).unwrap();
-        let (data, time) = packet.inner();
-        statement.bind((1, time.timestamp as i64)).unwrap();
-        statement.bind((2, data.as_slice())).unwrap();
-        statement.iter();
-        for _ in statement.iter() {}
-    }
-
-    pub fn most_recent_packet(&self) -> Option<CachedPacket> {
-        let connection = self.db.lock().unwrap();
-
-        let statement = "SELECT * FROM current_powercycle ORDER BY timestamp DESC;";
-        let mut statement = connection.prepare(statement).unwrap();
-        match statement.next() {
-            Ok(_) => {
-                Some(CachedPacket::raw(
-                    &statement.read::<Vec<u8>, _>("data").unwrap(),
-                    statement.read::<i64, _>("timestamp").unwrap() as u64,
-                ))
-            }
-
-            Err(_) => None,
-        }
-    }
-}
+pub struct ApplicationPacketDb {}
